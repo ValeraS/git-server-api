@@ -1,0 +1,23 @@
+{
+  "name": "git-server-api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Valeriy Sidorenko",
+  "license": "MIT",
+  "scripts": {
+    "start": "nodemon --inspect",
+    "lint:code": "eslint .",
+    "format:code": "npm lint:code -- --fix"
+  },
+  "dependencies": {
+    "express": "^4.17.1"
+  },
+  "devDependencies": {
+    "nodemon": "1.19.1",
+    "eslint": "^6.3.0",
+    "eslint-config-prettier": "^6.3.0",
+    "eslint-plugin-prettier": "^3.1.0",
+    "jest": "^24.9.0",
+    "prettier": "^1.18.2"
+  }
+}
