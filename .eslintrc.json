@@ -3,6 +3,8 @@
   "plugins": ["prettier"],
   "extends": ["eslint:recommended", "prettier"],
   "env": {
+    "es6": true,
+    "es2017": true,
     "node": true
   },
   "rules": {
