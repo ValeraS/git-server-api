@@ -1,12 +1,12 @@
-const { Container } = require('typedi');
 const path = require('path');
 
 const MAGIC_GIT_FIRST_PARENT = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
-function Repo(repoId, gitRunner) {
+function Repo(repoId, gitRunner, container) {
   this._repoId = repoId;
   this._gitRunner = gitRunner;
   this._env = {};
+  this._logger = container.get('logger');
 }
 
 Repo.prototype._maxCommitCount = 10;
@@ -77,7 +77,6 @@ Repo.prototype.countSymbols = async function() {
 
   const symbols = new Map();
   task.process.stdout.on('data', buffer => {
-    // Container.get('logger').info(buffer.toString('utf-8'));
     buffer
       .toString('utf-8')
       .replace(/\s+/g, '')
@@ -92,7 +91,6 @@ Repo.prototype.countSymbols = async function() {
       });
   });
   await task.done;
-  Container.get('logger').info(mapToObject(symbols));
   return mapToObject(symbols);
 };
 
@@ -104,9 +102,11 @@ function mapToObject(strMap) {
   return obj;
 }
 
-function GitRunner(baseDir) {
+function GitRunner(baseDir, container) {
   this._baseDir = baseDir;
   this._runQueue = [];
+  this._logger = container.get('logger');
+  this._childProcess = container.get('ChildProcess');
 }
 
 GitRunner.prototype.run = function(command, opts = {}) {
@@ -126,18 +126,21 @@ GitRunner.prototype.getOutput = async function(command, opts = {}) {
 
 GitRunner.prototype._command = 'git';
 GitRunner.prototype._schedule = function() {
-  if (!!this._childProcess || this._runQueue.length === 0) {
+  if (!!this._spawned || this._runQueue.length === 0) {
     return;
   }
 
   const [command, opts, callback] = this._runQueue.shift();
 
-  const ChildeProcess = Container.get('ChildProcess');
-  const spawned = ChildeProcess.spawn(this._command, command.slice(0), {
-    cwd: this._baseDir,
-    env: this._env,
-    windowsHide: true,
-  });
+  const spawned = (this._spawned = this._childProcess.spawn(
+    this._command,
+    command.slice(0),
+    {
+      cwd: this._baseDir,
+      env: this._env,
+      windowsHide: true,
+    }
+  ));
 
   const processResult = deferred();
 
@@ -174,6 +177,8 @@ GitRunner.prototype._schedule = function() {
       done();
     }
 
+    delete this._spawned;
+
     process.nextTick(this._schedule.bind(this));
     return result.done;
   });
@@ -184,21 +189,26 @@ GitRunner.prototype._schedule = function() {
 };
 
 GitRunner.prototype._fail = function(err) {
-  Container.get('logger').info('Error on run git command', err);
+  this._logger.info('Error on run git command', err);
   this._runQueue.length = 0;
 };
 
-function RepoModel(pathToRepos) {
+function RepoModel(pathToRepos, container) {
   this._pathToRepos = pathToRepos;
+  this._repoFactory = container.get('Repo');
+  this._gitRunnerFactory = container.get('GitRunner');
+  this._logger = container.get('logger');
 }
 
 RepoModel.prototype.get = function(repoId) {
-  const runner = new GitRunner(path.resolve(this._pathToRepos, repoId));
-  return new Repo(repoId, runner);
+  const runner = this._gitRunnerFactory(
+    path.resolve(this._pathToRepos, repoId)
+  );
+  return this._repoFactory(repoId, runner);
 };
 
 RepoModel.prototype.add = function(repoId, url) {
-  const runner = new GitRunner(this._pathToRepos);
+  const runner = this._gitRunnerFactory(this._pathToRepos);
   return runner.getOutput(['clone', url, repoId]);
 };
 
@@ -211,4 +221,8 @@ function deferred() {
   return d;
 }
 
-module.exports = pathToRepos => new RepoModel(pathToRepos);
+module.exports = {
+  Repo,
+  RepoModel,
+  GitRunner,
+};

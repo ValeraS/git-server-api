@@ -1,4 +1,3 @@
-const { Container } = require('typedi');
 const path = require('path');
 const fs = require('fs');
 const util = require('util');
@@ -7,8 +6,10 @@ const rimraf = util.promisify(require('rimraf'));
 const readdir = util.promisify(fs.readdir);
 const stat = util.promisify(fs.stat);
 
-function RepoService(pathToRepos) {
+function RepoService(pathToRepos, container) {
   this._pathToRepos = pathToRepos;
+  this._logger = container.get('logger');
+  this._repoModel = container.get('RepoModel');
 }
 
 RepoService.prototype.getRepos = async function() {
@@ -19,8 +20,7 @@ RepoService.prototype.getRepo = async function(repoId) {
   if (!(await this._repoExists(repoId))) {
     return null;
   }
-  const RepoModel = Container.get('RepoModel');
-  return RepoModel.get(repoId);
+  return this._repoModel.get(repoId);
 };
 
 RepoService.prototype.commits = async function(repo, commitHash, from, count) {
@@ -76,8 +76,8 @@ RepoService.prototype.addRepo = async function(repoId, repoUrl) {
   const urlObj = new URL(repoUrl);
   urlObj.protocol = 'http';
   const href = urlObj.href.replace(/^http/, 'git');
-  Container.get('logger').info(href);
-  await Container.get('RepoModel').add(repoId, href);
+  this._logger.info(href);
+  await this._repoModel.add(repoId, href);
   this._repoList.push(repoId);
 };
 
@@ -92,7 +92,6 @@ RepoService.prototype._repoExists = async function(repoId) {
 };
 
 RepoService.prototype._getRepos = async function() {
-  const Logger = Container.get('logger');
   if (this._repoList) {
     return this._repoList;
   }
@@ -112,9 +111,9 @@ RepoService.prototype._getRepos = async function() {
     this._repoList = dirs;
     return dirs;
   } catch (err) {
-    Logger.error('Error on getRepos: %o', err);
+    this._logger.error('Error on getRepos: %o', err);
     throw err;
   }
 };
 
-module.exports = pathToRepos => new RepoService(pathToRepos);
+module.exports = RepoService;
