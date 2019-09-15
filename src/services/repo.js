@@ -73,9 +73,7 @@ RepoService.prototype.countSymbols = function(repo) {
 };
 
 RepoService.prototype.addRepo = async function(repoId, repoUrl) {
-  const urlObj = new URL(repoUrl);
-  urlObj.protocol = 'http';
-  const href = urlObj.href.replace(/^http/, 'git');
+  const href = repoUrl.replace(/^https?(?=:\/\/)/, 'git');
   this._logger.info(href);
   await this._repoModel.add(repoId, href);
   this._repoList.push(repoId);
