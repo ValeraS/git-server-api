@@ -27,15 +27,18 @@ RepoService.prototype.commits = async function(repo, commitHash, from, count) {
   const { commits, commitCount } = await repo.commits(commitHash, from, count);
   return {
     total: commitCount,
-    commits: commits.split('\n').map(el => {
-      const [hash, date, author, subject] = el.split('\t');
-      return {
-        hash,
-        date,
-        author,
-        subject,
-      };
-    }),
+    commits: commits.split('\n').reduce((commits, el) => {
+      if (el) {
+        const [hash, date, author, subject] = el.split('\t');
+        commits.push({
+          hash,
+          date,
+          author,
+          subject,
+        });
+      }
+      return commits;
+    }, []),
   };
 };
 
