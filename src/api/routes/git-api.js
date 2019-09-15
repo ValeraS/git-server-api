@@ -90,6 +90,13 @@ module.exports = app => {
     }
   });
 
+  route.get(
+    '/countSymbols',
+    routeJSONHandler((req, res) =>
+      Container.get('RepoService').countSymbols(res.locals.repo)
+    )
+  );
+
   return route;
 };
 

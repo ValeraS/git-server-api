@@ -66,6 +66,44 @@ Repo.prototype.blob = async function(commitHash, pathToFile) {
   };
 };
 
+Repo.prototype.countSymbols = async function() {
+  const task = await this._gitRunner.run([
+    'grep',
+    '-I', // Do not match in binary
+    '-o', // Show only matches
+    '-h', // Do not show filename
+    '\\S', // Match any not white-space symbols
+  ]);
+
+  const symbols = new Map();
+  task.process.stdout.on('data', buffer => {
+    // Container.get('logger').info(buffer.toString('utf-8'));
+    buffer
+      .toString('utf-8')
+      .replace(/\s+/g, '')
+      .split('')
+      .forEach(symbol => {
+        let count = 0;
+        if (symbols.has(symbol)) {
+          count = symbols.get(symbol);
+        }
+        count++;
+        symbols.set(symbol, count);
+      });
+  });
+  await task.done;
+  Container.get('logger').info(mapToObject(symbols));
+  return mapToObject(symbols);
+};
+
+function mapToObject(strMap) {
+  const obj = Object.create(null);
+  for (const [k, v] of strMap) {
+    obj[k] = v;
+  }
+  return obj;
+}
+
 function GitRunner(baseDir) {
   this._baseDir = baseDir;
   this._runQueue = [];

@@ -65,6 +65,10 @@ RepoService.prototype.blob = function(repo, commitHash, path) {
   return repo.blob(commitHash, path);
 };
 
+RepoService.prototype.countSymbols = function(repo) {
+  return repo.countSymbols();
+};
+
 RepoService.prototype.addRepo = async function(repoId, repoUrl) {
   const urlObj = new URL(repoUrl);
   urlObj.protocol = 'http';
