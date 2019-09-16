@@ -14,7 +14,7 @@ module.exports = ({ pathToRepos }) => {
     Container.set('GitRunner', containerWrapper(GitRunner, Container));
     Container.set('Repo', containerWrapper(Repo, Container));
     Container.set('RepoModel', new RepoModel(pathToRepos, Container));
-    Container.set('RepoService', new RepoService(pathToRepos, Container));
+    Container.set('RepoService', new RepoService(Container));
   } catch (err) {
     Logger.error('Error on dependency injector loader: %o', err);
     throw err;

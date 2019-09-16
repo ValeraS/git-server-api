@@ -1,4 +1,10 @@
 const path = require('path');
+const fs = require('fs');
+const util = require('util');
+const rimraf = util.promisify(require('rimraf'));
+
+const readdir = util.promisify(fs.readdir);
+const stat = util.promisify(fs.stat);
 
 const MAGIC_GIT_FIRST_PARENT = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
@@ -9,98 +15,43 @@ function Repo(repoId, gitRunner, container) {
   this._logger = container.get('logger');
 }
 
-Repo.prototype._maxCommitCount = 10;
+Object.defineProperty(Repo.prototype, 'repoId', {
+  get: function() {
+    return this._repoId;
+  },
+});
 
-Repo.prototype.commits = async function(
-  commitHash,
-  skip = 0,
-  maxCount = this._maxCommitCount
-) {
-  const commitCount = parseInt(
-    await this._gitRunner.getOutput(['rev-list', commitHash, '--count']),
-    10
-  );
-  const commits = await this._gitRunner.getOutput([
-    'log',
-    commitHash,
-    `--skip=${skip}`,
-    `--max-count=${Math.min(maxCount, this._maxCommitCount)}`,
-    '--format=%H\t%aI\t%an\t%s',
-  ]);
-
-  return { commits, commitCount };
+Repo.prototype.log = function(options) {
+  return this._run('log', options);
 };
 
-Repo.prototype.diff = async function(commitHash) {
-  const parents = await this._gitRunner.getOutput([
-    'log',
-    '-1',
-    '--format=%P',
-    commitHash,
-  ]);
-  const firstParent = /\s*/.test(parents)
-    ? MAGIC_GIT_FIRST_PARENT
-    : parents.split(/\s+/)[0];
-  const task = await this._gitRunner.run([
-    'diff',
-    `${firstParent}..${commitHash}`,
-  ]);
-  return {
-    done: task.done,
-    stream: task.process.stdout,
-  };
+Repo.prototype.diff = function(options) {
+  return this._run('diff', options);
 };
 
-Repo.prototype.tree = function(commitHash, pathToFile) {
-  return this._gitRunner.getOutput(['ls-tree', `${commitHash}:${pathToFile}`]);
+Repo.prototype.revList = function(options) {
+  return this._run('rev-list', options);
 };
 
-Repo.prototype.blob = async function(commitHash, pathToFile) {
-  const task = await this._gitRunner.run([
-    'show',
-    `${commitHash}:${pathToFile}`,
-  ]);
-  return {
-    done: task.done,
-    stream: task.process.stdout,
-  };
+Repo.prototype.tree = function(options) {
+  return this._run('ls-tree', options);
 };
 
-Repo.prototype.countSymbols = async function() {
-  const task = await this._gitRunner.run([
-    'grep',
-    '-I', // Do not match in binary
-    '-o', // Show only matches
-    '-h', // Do not show filename
-    '\\S', // Match any not white-space symbols
-  ]);
-
-  const symbols = new Map();
-  task.process.stdout.on('data', buffer => {
-    buffer
-      .toString('utf-8')
-      .replace(/\s+/g, '')
-      .split('')
-      .forEach(symbol => {
-        let count = 0;
-        if (symbols.has(symbol)) {
-          count = symbols.get(symbol);
-        }
-        count++;
-        symbols.set(symbol, count);
-      });
-  });
-  await task.done;
-  return mapToObject(symbols);
+Repo.prototype.show = function(options) {
+  return this._run('ls-tree', options);
 };
 
-function mapToObject(strMap) {
-  const obj = Object.create(null);
-  for (const [k, v] of strMap) {
-    obj[k] = v;
+Repo.prototype.grep = function(options) {
+  return this._run('grep', options);
+};
+
+Repo.prototype._run = function(command, options, opts = {}) {
+  const cmd = [command];
+  if (Array.isArray(options)) {
+    cmd.push(...options);
   }
-  return obj;
-}
+  return this._gitRunner.run(cmd, opts);
+};
 
 function GitRunner(baseDir, container) {
   this._baseDir = baseDir;
@@ -113,11 +64,13 @@ GitRunner.prototype.run = function(command, opts = {}) {
   const result = deferred();
   this._runQueue.push([command, opts, result.resolve]);
   this._schedule();
-  return result.done;
+  const deferredTask = result.done;
+  deferredTask.getOutput = () => this._getOutput(deferredTask);
+  return deferredTask;
 };
 
-GitRunner.prototype.getOutput = async function(command, opts = {}) {
-  const task = await this.run(command, opts);
+GitRunner.prototype._getOutput = async function(deferredTask) {
+  const task = await deferredTask;
   const stdOut = [];
   task.process.stdout.on('data', buffer => stdOut.push(buffer));
   await task.done;
@@ -200,6 +153,8 @@ function RepoModel(pathToRepos, container) {
   this._logger = container.get('logger');
 }
 
+RepoModel.prototype.MAGIC_GIT_FIRST_PARENT = MAGIC_GIT_FIRST_PARENT;
+
 RepoModel.prototype.get = function(repoId) {
   const runner = this._gitRunnerFactory(
     path.resolve(this._pathToRepos, repoId)
@@ -209,7 +164,29 @@ RepoModel.prototype.get = function(repoId) {
 
 RepoModel.prototype.add = function(repoId, url) {
   const runner = this._gitRunnerFactory(this._pathToRepos);
-  return runner.getOutput(['clone', url, repoId]);
+  return runner.run(['clone', url, repoId]).getOutput();
+};
+
+RepoModel.prototype.delete = async function(repo) {
+  const pathToRepo = path.resolve(this._pathToRepos, repo.repoId);
+  await rimraf(pathToRepo);
+};
+
+RepoModel.prototype.getRepoList = async function() {
+  const fileNames = await readdir(this._pathToRepos);
+  const dirs = (await Promise.all(
+    fileNames.map(async filename => ({
+      filename,
+      stat: await stat(path.resolve(this._pathToRepos, filename)),
+    }))
+  )).reduce((dirs, fileStat) => {
+    if (fileStat.stat.isDirectory()) {
+      dirs.push(fileStat.filename);
+    }
+    return dirs;
+  }, []);
+  this._repoList = dirs;
+  return dirs;
 };
 
 function deferred() {

@@ -21,7 +21,7 @@ module.exports = app => {
     '/commits/:commitHash',
     routeJSONHandler((req, res) => {
       let { from, count } = req.query;
-      from = isNaN(from) || from < 1 ? 0 : from - 1;
+      from = isNaN(from) || from < 1 ? 1 : +from;
       count = isNaN(count) || count < 1 ? undefined : +count;
 
       return Container.get('RepoService').commits(
@@ -70,7 +70,7 @@ module.exports = app => {
   route.delete('/', async (req, res, next) => {
     const Logger = Container.get('logger');
     try {
-      await Container.get('RepoService').deleteRepo(res.locals.repoId);
+      await Container.get('RepoService').deleteRepo(res.locals.repo);
       res.status(200).end();
     } catch (err) {
       Logger.info(`Error on route ${req.method} ${req.url}: %o`, err);
@@ -81,7 +81,7 @@ module.exports = app => {
   route.post('/', async (req, res, next) => {
     const Logger = Container.get('logger');
     try {
-      const { url } = req.body;
+      const { url = '' } = req.body;
       await Container.get('RepoService').addRepo(res.locals.repoId, url);
       res.status(201).end();
     } catch (err) {

@@ -1,13 +1,4 @@
-const path = require('path');
-const fs = require('fs');
-const util = require('util');
-const rimraf = util.promisify(require('rimraf'));
-
-const readdir = util.promisify(fs.readdir);
-const stat = util.promisify(fs.stat);
-
-function RepoService(pathToRepos, container) {
-  this._pathToRepos = pathToRepos;
+function RepoService(container) {
   this._logger = container.get('logger');
   this._repoModel = container.get('RepoModel');
 }
@@ -24,7 +15,20 @@ RepoService.prototype.getRepo = async function(repoId) {
 };
 
 RepoService.prototype.commits = async function(repo, commitHash, from, count) {
-  const { commits, commitCount } = await repo.commits(commitHash, from, count);
+  const commitCount = parseInt(
+    await repo.revList([commitHash, '--count']).getOutput(),
+    10
+  );
+  const maxCount = 10;
+  const commits = await repo
+    .log([
+      commitHash,
+      `--skip=${from - 1}`,
+      `--max-count=${Math.min(count || maxCount, maxCount)}`,
+      '--format=%H\t%aI\t%an\t%s',
+    ])
+    .getOutput();
+
   return {
     total: commitCount,
     commits: commits.split('\n').reduce((commits, el) => {
@@ -43,11 +47,20 @@ RepoService.prototype.commits = async function(repo, commitHash, from, count) {
 };
 
 RepoService.prototype.diff = async function(repo, commitHash) {
-  return repo.diff(commitHash);
+  const parents = await repo.log(['-1', '--format=%P', commitHash]).getOutput();
+  this._logger.info(parents);
+  const firstParent = /^\s*$/.test(parents)
+    ? this._repoModel.MAGIC_GIT_FIRST_PARENT
+    : parents.split(/\s+/)[0];
+  const task = await repo.diff([`${firstParent}..${commitHash}`]);
+  return {
+    done: task.done,
+    stream: task.process.stdout,
+  };
 };
 
 RepoService.prototype.tree = async function(repo, commitHash = '@', path = '') {
-  const out = await repo.tree(commitHash, path);
+  const out = await repo.tree(`${commitHash}:${path}`).getOutput();
   const tree = out.split('\n').reduce((records, el) => {
     if (!el) {
       return records;
@@ -64,13 +77,48 @@ RepoService.prototype.tree = async function(repo, commitHash = '@', path = '') {
   return tree;
 };
 
-RepoService.prototype.blob = function(repo, commitHash, path) {
-  return repo.blob(commitHash, path);
+RepoService.prototype.blob = async function(repo, commitHash, path) {
+  const task = await repo.show([`${commitHash}:${path}`]);
+  return {
+    done: task.done,
+    stream: task.process.stdout,
+  };
 };
 
-RepoService.prototype.countSymbols = function(repo) {
-  return repo.countSymbols();
+RepoService.prototype.countSymbols = async function(repo) {
+  const task = await repo.grep([
+    '-I', // Do not match in binary
+    '-o', // Show only matches
+    '-h', // Do not show filename
+    '\\S', // Match any not white-space symbols
+  ]);
+
+  const symbols = new Map();
+  task.process.stdout.on('data', buffer => {
+    buffer
+      .toString('utf-8')
+      .replace(/\s+/g, '')
+      .split('')
+      .forEach(symbol => {
+        let count = 0;
+        if (symbols.has(symbol)) {
+          count = symbols.get(symbol);
+        }
+        count++;
+        symbols.set(symbol, count);
+      });
+  });
+  await task.done;
+  return mapToObject(symbols);
 };
+
+function mapToObject(strMap) {
+  const obj = Object.create(null);
+  for (const [k, v] of strMap) {
+    obj[k] = v;
+  }
+  return obj;
+}
 
 RepoService.prototype.addRepo = async function(repoId, repoUrl) {
   const href = repoUrl.replace(/^https?(?=:\/\/)/, 'git');
@@ -79,10 +127,9 @@ RepoService.prototype.addRepo = async function(repoId, repoUrl) {
   this._repoList.push(repoId);
 };
 
-RepoService.prototype.deleteRepo = async function(repoId) {
-  this._repoList = this._repoList.filter(el => el !== repoId);
-  const pathToRepo = path.resolve(this._pathToRepos, repoId);
-  await rimraf(pathToRepo);
+RepoService.prototype.deleteRepo = async function(repo) {
+  this._repoList = this._repoList.filter(el => el !== repo.repoId);
+  await this._repoModel.delete(repo);
 };
 
 RepoService.prototype._repoExists = async function(repoId) {
@@ -90,28 +137,15 @@ RepoService.prototype._repoExists = async function(repoId) {
 };
 
 RepoService.prototype._getRepos = async function() {
-  if (this._repoList) {
-    return this._repoList;
+  if (!this._repoList) {
+    try {
+      this._repoList = await this._repoModel.getRepoList();
+    } catch (err) {
+      this._logger.error('Error on getRepos: %o', err);
+      throw err;
+    }
   }
-  try {
-    const fileNames = await readdir(this._pathToRepos);
-    const dirs = (await Promise.all(
-      fileNames.map(async filename => ({
-        filename,
-        stat: await stat(path.resolve(this._pathToRepos, filename)),
-      }))
-    )).reduce((dirs, fileStat) => {
-      if (fileStat.stat.isDirectory()) {
-        dirs.push(fileStat.filename);
-      }
-      return dirs;
-    }, []);
-    this._repoList = dirs;
-    return dirs;
-  } catch (err) {
-    this._logger.error('Error on getRepos: %o', err);
-    throw err;
-  }
+  return this._repoList;
 };
 
 module.exports = RepoService;

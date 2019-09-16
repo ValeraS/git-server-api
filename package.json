@@ -4,6 +4,9 @@
   "main": "index.js",
   "author": "Valeriy Sidorenko",
   "license": "MIT",
+  "engines": {
+    "node": ">=10.16.3"
+  },
   "scripts": {
     "start": "nodemon --inspect index.js",
     "lint:code": "eslint .",
