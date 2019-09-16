@@ -38,7 +38,7 @@ Repo.prototype.tree = function(options) {
 };
 
 Repo.prototype.show = function(options) {
-  return this._run('ls-tree', options);
+  return this._run('show', options);
 };
 
 Repo.prototype.grep = function(options) {
@@ -50,6 +50,7 @@ Repo.prototype._run = function(command, options, opts = {}) {
   if (Array.isArray(options)) {
     cmd.push(...options);
   }
+  this._logger.info(cmd);
   return this._gitRunner.run(cmd, opts);
 };
 

@@ -60,7 +60,7 @@ RepoService.prototype.diff = async function(repo, commitHash) {
 };
 
 RepoService.prototype.tree = async function(repo, commitHash = '@', path = '') {
-  const out = await repo.tree(`${commitHash}:${path}`).getOutput();
+  const out = await repo.tree([`${commitHash}:${path}`]).getOutput();
   const tree = out.split('\n').reduce((records, el) => {
     if (!el) {
       return records;
